@@ -2,6 +2,11 @@ import smbus
 import time
 import math
 import RPi.GPIO as GPIO
+
+import os                   # For creating directories
+from datetime import datetime # For timestamped filenames
+from picamera2 import Picamera2 # Import the camera library
+
 # from mpu6050 import mpu6050
 # --- MPU6050 Class (incorporating previous fixes) ---
 class mpu6050:
@@ -135,6 +140,60 @@ def cleanup_gpio():
     GPIO.cleanup()
     print("GPIO cleanup complete.")
 
+
+# --- Camera Functions ---
+ALERT_FOLDER = "alerts"
+camera = None # Global camera object
+
+def setup_camera():
+    global camera
+    try:
+        camera = Picamera2()
+        # Configure for still capture (adjust resolution as needed)
+        config = camera.create_still_configuration(main={"size": (1920, 1080)})
+        camera.configure(config)
+        camera.start()
+        print("Camera setup complete and started.")
+        # Allow time for camera to initialize focus etc.
+        time.sleep(2)
+    except Exception as e:
+        print(f"Error setting up camera: {e}")
+        camera = None # Ensure camera object is None if setup failed
+
+def capture_alert_image():
+    if camera is None:
+        print("Camera not available, cannot capture image.")
+        return
+
+    try:
+        # Create the alerts folder if it doesn't exist
+        os.makedirs(ALERT_FOLDER, exist_ok=True)
+
+        # Generate timestamped filename
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"alert_{timestamp_str}.jpg"
+        filepath = os.path.join(ALERT_FOLDER, filename)
+
+        # Capture the image
+        print(f"Capturing image to {filepath}...")
+        camera.capture_file(filepath)
+        print("Image captured successfully.")
+
+    except Exception as e:
+        print(f"Error capturing image: {e}")
+
+def close_camera():
+    global camera
+    if camera:
+        try:
+            print("Stopping camera...")
+            camera.stop()
+            camera.close()
+            print("Camera stopped and closed.")
+        except Exception as e:
+            print(f"Error closing camera: {e}")
+
+
 # --- Main Detection Logic ---
 def main():
     # --- Thresholds (tune these based on testing!) ---
@@ -142,49 +201,64 @@ def main():
     ACCEL_DELTA_THRESHOLD = 3.419 # m/s^2
     # How much rotation (in deg/s) indicates motion?
     GYRO_MAG_THRESHOLD = 10.0  # degrees/second
-
     # Sampling delay
     DELAY = 0.1 # seconds
 
+    mpu = None # Initialize to None
+
     try:
-        mpu = mpu6050(0x68) # Initialize sensor (will raise error if fails)
-        setup_led()         # Setup LED GPIO pin
+        mpu = mpu6050(0x68)
+        setup_led()
+        setup_camera() # Initialize the camera
 
         print("Monitoring MPU6050 for motion...")
-        print(f"Accel Delta Threshold: {ACCEL_DELTA_THRESHOLD} m/s^2")
-        print(f"Gyro Mag Threshold: {GYRO_MAG_THRESHOLD} deg/s")
+        print("Will capture image when device becomes stationary.")
         print("Press Ctrl+C to exit.")
 
-        last_state_moving = False # Track the last state
+        last_state_moving = False # Start assuming stationary
 
         while True:
             # Read sensor data
-            accel_data = mpu.get_accel_data(g=False) # Get in m/s^2
-            gyro_data = mpu.get_gyro_data()         # Get in deg/s
+            accel_data = mpu.get_accel_data(g=False)
+            gyro_data = mpu.get_gyro_data()
 
-            # Calculate acceleration magnitude and delta from gravity
+            # Basic check if sensor readings are valid (not all zero from read error)
+            if accel_data['x'] == 0 and accel_data['y'] == 0 and accel_data['z'] == 0:
+                 # Likely an I2C read error, skip this cycle
+                 time.sleep(DELAY)
+                 continue
+
+            # Calculate features
             ax, ay, az = accel_data['x'], accel_data['y'], accel_data['z']
             accel_magnitude = math.sqrt(ax**2 + ay**2 + az**2)
             accel_delta = abs(accel_magnitude - mpu6050.GRAVITIY_MS2)
 
-            # Calculate gyroscope magnitude
             gx, gy, gz = gyro_data['x'], gyro_data['y'], gyro_data['z']
             gyro_magnitude = math.sqrt(gx**2 + gy**2 + gz**2)
 
-            # Check if either threshold is exceeded
+            # Determine current motion state
             is_moving_now = (accel_delta > ACCEL_DELTA_THRESHOLD or
                              gyro_magnitude > GYRO_MAG_THRESHOLD)
 
+            # --- State Transition Logic ---
             if is_moving_now:
                 led_on()
-                if not last_state_moving: # Print only on state change
-                    print(f"Motion Detected! (A_delta={accel_delta:.2f}, G_mag={gyro_magnitude:.2f})", end='\r')
-                    last_state_moving = True
-            else:
+                if not last_state_moving: # Transitioned to moving
+                    print("Status: Moving  ", end='\r')
+                last_state_moving = True
+            else: # Currently stationary
                 led_off()
-                if last_state_moving: # Print only on state change
-                    print("Stationary...                                             ", end='\r')
-                    last_state_moving = False
+                if last_state_moving: # <<< Transitioned to stationary >>>
+                    print("Status: Stationary - Capturing Alert!  ", end='\r')
+                    capture_alert_image() # Take picture!
+                # else: # Still stationary, print only once or periodically
+                #    if not 'printed_stationary' in locals() or not printed_stationary:
+                #       print("Status: Stationary                                          ", end='\r')
+                #       printed_stationary = True
+
+                last_state_moving = False
+                # printed_moving = False # Reset moving print flag
+
 
             time.sleep(DELAY)
 
@@ -193,8 +267,10 @@ def main():
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
     finally:
-        # Ensure GPIO is cleaned up regardless of how the script exits
+        # Ensure resources are cleaned up
         cleanup_gpio()
+        close_camera() # Make sure camera is stopped and closed
+
 
 if __name__ == "__main__":
     main()
