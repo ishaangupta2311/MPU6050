@@ -2,7 +2,7 @@ import smbus
 import time
 import math
 import RPi.GPIO as GPIO
-
+# from mpu6050 import mpu6050
 # --- MPU6050 Class (incorporating previous fixes) ---
 class mpu6050:
     # Global Variables
@@ -115,7 +115,7 @@ class mpu6050:
         return {'x': x, 'y': y, 'z': z}
 
 # --- LED Control Functions ---
-LED_PIN = 16 # BCM Pin number for the LED
+LED_PIN = 16 # Physical Pin number for the LED
 
 def setup_led():
     GPIO.setwarnings(False) # Disable warnings
@@ -139,7 +139,7 @@ def cleanup_gpio():
 def main():
     # --- Thresholds (tune these based on testing!) ---
     # How much deviation from 1G (9.8 m/s^2) indicates motion?
-    ACCEL_DELTA_THRESHOLD = 0.4 # m/s^2
+    ACCEL_DELTA_THRESHOLD = 3.419 # m/s^2
     # How much rotation (in deg/s) indicates motion?
     GYRO_MAG_THRESHOLD = 10.0  # degrees/second
 
