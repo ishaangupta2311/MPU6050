@@ -276,71 +276,74 @@ except Exception as init_error:
     print(f"Could not start MPU6050. Exiting. Error: {init_error}")
     exit() # Exit if sensor cannot be initialized
 
-# --- Animation Function ---
-def update_plot(frame):
-    """This function is called by FuncAnimation to update the plot."""
-    try:
-        # Get data from the sensor
-        accel_data = mpu.get_accel_data(g=False) # Get data in m/s^2
-
-        # Append data to the deques
-        if not time_data: # If time_data is empty, start time at 0
-            current_time = 0
-        else:
-            # Increment time based on the last time point and interval
-            current_time = time_data[-1] + TIME_INCREMENT_S
-        time_data.append(current_time)
-
-        ax_data.append(accel_data['x'])
-        ay_data.append(accel_data['y'])
-        az_data.append(accel_data['z'])
-
-        # Update the plot lines with new data (convert deques to lists)
-        line_ax.set_data(list(time_data), list(ax_data))
-        line_ay.set_data(list(time_data), list(ay_data))
-        line_az.set_data(list(time_data), list(az_data))
-
-        # --- Adjust plot limits dynamically ---
-        # Adjust X-axis limits to the current time window
-        if len(time_data) > 1:
-             # Keep the view scrolling: start from the first time point in the deque
-             ax.set_xlim(time_data[0], time_data[-1])
-        elif time_data:
-             # Handle the case with only one point
-             ax.set_xlim(time_data[0] - TIME_INCREMENT_S, time_data[0] + TIME_INCREMENT_S)
-
-
-        # Adjust Y-axis limits based on the min/max values currently visible
-        if ax_data: # Check if there is data to calculate limits
-            min_y = min(min(ax_data), min(ay_data), min(az_data))
-            max_y = max(max(ax_data), max(ay_data), max(az_data))
-            padding = (max_y - min_y) * 0.1 # Add 10% padding
-            if padding < 1: # Ensure minimum padding if range is small
-                padding = 1
-            ax.set_ylim(min_y - padding, max_y + padding)
-
-        # ** CRITICAL FIX FOR BLITTING **
-        # Return an iterable of the plot artists that were modified
-        return line_ax, line_ay, line_az
-
-    except Exception as e:
-        # Print error but continue animation if possible
-        print(f"Error during plot update: {e}")
-        # Return the existing lines to avoid crashing blit
-        return line_ax, line_ay, line_az
 
 
 # --- Main Execution ---
 if __name__ == "__main__":
+# --- Animation Function ---
+    def update_plot(frame):
+        """This function is called by FuncAnimation to update the plot."""
+        try:
+            # Get data from the sensor
+            accel_data = mpu.get_accel_data(g=False) # Get data in m/s^2
+
+            # Append data to the deques
+            if not time_data: # If time_data is empty, start time at 0
+                current_time = 0
+            else:
+                # Increment time based on the last time point and interval
+                current_time = time_data[-1] + TIME_INCREMENT_S
+            time_data.append(current_time)
+
+            ax_data.append(accel_data['x'])
+            ay_data.append(accel_data['y'])
+            az_data.append(accel_data['z'])
+
+            # Update the plot lines with new data (convert deques to lists)
+            line_ax.set_data(list(time_data), list(ax_data))
+            line_ay.set_data(list(time_data), list(ay_data))
+            line_az.set_data(list(time_data), list(az_data))
+
+            # --- Adjust plot limits dynamically ---
+            # Adjust X-axis limits to the current time window
+            if len(time_data) > 1:
+                # Keep the view scrolling: start from the first time point in the deque
+                ax.set_xlim(time_data[0], time_data[-1])
+            elif time_data:
+                # Handle the case with only one point
+                ax.set_xlim(time_data[0] - TIME_INCREMENT_S, time_data[0] + TIME_INCREMENT_S)
+
+
+            # Adjust Y-axis limits based on the min/max values currently visible
+            if ax_data: # Check if there is data to calculate limits
+                min_y = min(min(ax_data), min(ay_data), min(az_data))
+                max_y = max(max(ax_data), max(ay_data), max(az_data))
+                padding = (max_y - min_y) * 0.1 # Add 10% padding
+                if padding < 1: # Ensure minimum padding if range is small
+                    padding = 1
+                ax.set_ylim(min_y - padding, max_y + padding)
+
+            # ** CRITICAL FIX FOR BLITTING **
+            # Return an iterable of the plot artists that were modified
+            return line_ax, line_ay, line_az
+
+        except Exception as e:
+            # Print error but continue animation if possible
+            print(f"Error during plot update: {e}")
+            # Return the existing lines to avoid crashing blit
+            return line_ax, line_ay, line_az
+
+
+
     # Create the animation
     # interval: delay between frames in milliseconds
     # blit=True: optimizes drawing (requires update_plot to return modified artists)
     ani = animation.FuncAnimation(fig,                  # Figure to animate
-                                  update_plot,          # Function to call for each frame
-                                  interval=ANIMATION_INTERVAL_MS, # Delay between frames (ms)
-                                  blit=True,            # Use blitting for performance
-                                  # save_count=MAX_POINTS # Only needed if saving animation
-                                  )
+                                update_plot,          # Function to call for each frame
+                                interval=ANIMATION_INTERVAL_MS, # Delay between frames (ms)
+                                blit=True,            # Use blitting for performance
+                                # save_count=MAX_POINTS # Only needed if saving animation
+                                )
 
     print("Starting MPU6050 accelerometer plot...")
     print("Close the plot window or press Ctrl+C in the terminal to exit.")
